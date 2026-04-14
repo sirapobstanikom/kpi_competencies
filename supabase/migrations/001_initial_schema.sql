@@ -90,14 +90,14 @@ CREATE TABLE public.evaluations (
 CREATE TABLE public.competency_answers (
   evaluation_id uuid NOT NULL REFERENCES public.evaluations (id) ON DELETE CASCADE,
   question_id uuid NOT NULL REFERENCES public.competency_questions (id) ON DELETE CASCADE,
-  score numeric(4, 2) NOT NULL CHECK (score >= 0 AND score <= 5),
+  score numeric(4, 2) NOT NULL CHECK (score >= 1 AND score <= 5),
   PRIMARY KEY (evaluation_id, question_id)
 );
 
 CREATE TABLE public.kpi_answers (
   evaluation_id uuid NOT NULL REFERENCES public.evaluations (id) ON DELETE CASCADE,
   kpi_id uuid NOT NULL REFERENCES public.kpi_items (id) ON DELETE CASCADE,
-  score numeric(4, 2) NOT NULL CHECK (score >= 0 AND score <= 5),
+  score numeric(4, 2) NOT NULL CHECK (score >= 1 AND score <= 5),
   PRIMARY KEY (evaluation_id, kpi_id)
 );
 
@@ -124,15 +124,68 @@ CREATE INDEX idx_assignments_cycle_employee ON public.evaluator_assignments (cyc
 -- Helpers
 -- ---------------------------------------------------------------------------
 
+-- อ่าน profiles โดยปิด RLS ตลอดการรันฟังก์ชัน (SET LOCAL ในบริบท RLS บางเคสยังได้ 400 จาก PostgREST)
 CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS boolean
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+BEGIN
+  RETURN COALESCE(
+    (SELECT p.is_admin FROM public.profiles p WHERE p.id = auth.uid()),
+    false
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.admin_profile_count()
+RETURNS bigint
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+SET row_security = off
+AS $$
+DECLARE
+  v_admin boolean;
+  v_cnt bigint;
+BEGIN
+  SELECT COALESCE(is_admin, false) INTO v_admin FROM public.profiles WHERE id = auth.uid();
+  IF NOT COALESCE(v_admin, false) THEN
+    RETURN 0;
+  END IF;
+  SELECT count(*)::bigint INTO v_cnt FROM public.profiles;
+  RETURN v_cnt;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_profile_count() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.evaluator_can_modify_answers(p_evaluation_id uuid)
 RETURNS boolean
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
 SET search_path = public
+SET row_security = off
 AS $$
-  SELECT COALESCE((SELECT p.is_admin FROM public.profiles p WHERE p.id = auth.uid()), false);
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.evaluations e
+    INNER JOIN public.evaluation_cycles c ON c.id = e.cycle_id
+    WHERE e.id = p_evaluation_id
+      AND e.evaluator_id = auth.uid()
+      AND c.status IS DISTINCT FROM 'closed'
+      AND c.end_date >= (timezone('Asia/Bangkok', now()))::date
+      AND e.status IN ('draft', 'submitted')
+  )
+  OR public.is_admin();
 $$;
+
+GRANT EXECUTE ON FUNCTION public.evaluator_can_modify_answers(uuid) TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.touch_evaluations_updated_at()
 RETURNS trigger
@@ -397,7 +450,7 @@ CREATE POLICY profiles_update_self ON public.profiles FOR UPDATE TO authenticate
   USING (id = auth.uid())
   WITH CHECK (
     id = auth.uid()
-    AND is_admin = (SELECT p.is_admin FROM public.profiles p WHERE p.id = auth.uid())
+    AND is_admin = public.is_admin()
   );
 CREATE POLICY profiles_all_admin ON public.profiles FOR ALL TO authenticated
   USING (public.is_admin()) WITH CHECK (public.is_admin());
@@ -464,34 +517,22 @@ CREATE POLICY ca_select ON public.competency_answers FOR SELECT TO authenticated
   );
 CREATE POLICY ca_iud_evaluator ON public.competency_answers FOR INSERT TO authenticated
   WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM public.evaluations e
-      WHERE e.id = evaluation_id AND e.evaluator_id = auth.uid() AND e.status = 'draft'
-    )
-    OR public.is_admin()
+    public.is_admin()
+    OR public.evaluator_can_modify_answers(evaluation_id)
   );
 CREATE POLICY ca_update_evaluator ON public.competency_answers FOR UPDATE TO authenticated
   USING (
     public.is_admin()
-    OR EXISTS (
-      SELECT 1 FROM public.evaluations e
-      WHERE e.id = evaluation_id AND e.evaluator_id = auth.uid() AND e.status = 'draft'
-    )
+    OR public.evaluator_can_modify_answers(evaluation_id)
   )
   WITH CHECK (
     public.is_admin()
-    OR EXISTS (
-      SELECT 1 FROM public.evaluations e
-      WHERE e.id = evaluation_id AND e.evaluator_id = auth.uid() AND e.status = 'draft'
-    )
+    OR public.evaluator_can_modify_answers(evaluation_id)
   );
 CREATE POLICY ca_delete_evaluator ON public.competency_answers FOR DELETE TO authenticated
   USING (
     public.is_admin()
-    OR EXISTS (
-      SELECT 1 FROM public.evaluations e
-      WHERE e.id = evaluation_id AND e.evaluator_id = auth.uid() AND e.status = 'draft'
-    )
+    OR public.evaluator_can_modify_answers(evaluation_id)
   );
 
 -- kpi_answers — same pattern
@@ -509,34 +550,22 @@ CREATE POLICY ka_select ON public.kpi_answers FOR SELECT TO authenticated
   );
 CREATE POLICY ka_iud_evaluator ON public.kpi_answers FOR INSERT TO authenticated
   WITH CHECK (
-    EXISTS (
-      SELECT 1 FROM public.evaluations e
-      WHERE e.id = evaluation_id AND e.evaluator_id = auth.uid() AND e.status = 'draft'
-    )
-    OR public.is_admin()
+    public.is_admin()
+    OR public.evaluator_can_modify_answers(evaluation_id)
   );
 CREATE POLICY ka_update_evaluator ON public.kpi_answers FOR UPDATE TO authenticated
   USING (
     public.is_admin()
-    OR EXISTS (
-      SELECT 1 FROM public.evaluations e
-      WHERE e.id = evaluation_id AND e.evaluator_id = auth.uid() AND e.status = 'draft'
-    )
+    OR public.evaluator_can_modify_answers(evaluation_id)
   )
   WITH CHECK (
     public.is_admin()
-    OR EXISTS (
-      SELECT 1 FROM public.evaluations e
-      WHERE e.id = evaluation_id AND e.evaluator_id = auth.uid() AND e.status = 'draft'
-    )
+    OR public.evaluator_can_modify_answers(evaluation_id)
   );
 CREATE POLICY ka_delete_evaluator ON public.kpi_answers FOR DELETE TO authenticated
   USING (
     public.is_admin()
-    OR EXISTS (
-      SELECT 1 FROM public.evaluations e
-      WHERE e.id = evaluation_id AND e.evaluator_id = auth.uid() AND e.status = 'draft'
-    )
+    OR public.evaluator_can_modify_answers(evaluation_id)
   );
 
 -- evaluation_results

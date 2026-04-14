@@ -10,7 +10,11 @@
 ## 1) สร้างฐานข้อมูลและนโยบาย RLS
 
 1. เปิดโปรเจกต์ Supabase → **SQL Editor**
-2. วางและรันไฟล์ `supabase/migrations/001_initial_schema.sql` ทั้งไฟล์ (หนึ่งครั้งต่อโปรเจกต์)
+2. วางและรันไฟล์ `supabase/migrations/001_initial_schema.sql` ทั้งไฟล์ (หนึ่งครั้งต่อโปรเจกต์)  
+   ถ้าเคยรัน `001` ไปแล้วแล้วเจอ error **`infinite recursion detected in policy for relation "profiles"`** ให้รัน `002_fix_profiles_rls_recursion.sql`  
+   ถ้า **REST ตอบ 400 ทุกคำขอที่ `/profiles`** (รวมทั้งแดชบอร์ด / มอบหมาย) ให้รันเพิ่ม **`004_is_admin_row_security_and_admin_count.sql`** (ปรับ `is_admin()` + ฟังก์ชัน `admin_profile_count()`)  
+   คะแนนแบบประเมินเป็น **1–5** (ทศนิยม 1 ตำแหน่ง) ตามแอป — รัน **`005_eval_scores_1_to_5.sql`** ถ้า DB ยังอนุญาต 0–5  
+   ให้ผู้ประเมิน**แก้คะแนนหลังส่งได้จนสิ้นวันสิ้นสุดรอบ** — รัน **`006_eval_edit_until_cycle_end.sql`**
 
 สคริปต์นี้สร้าง:
 
@@ -26,7 +30,9 @@
 
 1. ใน Supabase: **Authentication → Providers** เปิด Email (หรือตามนโยบายองค์กร)
 2. สร้างผู้ใช้ทดสอบ (**Authentication → Users → Add user**)
-3. หลังมีผู้ใช้ แถวใน `public.profiles` จะถูกสร้างอัตโนมัติ
+3. หลังมีผู้ใช้ แถวใน `public.profiles` จะถูกสร้างอัตโนมัติ (trigger `on_auth_user_created`)  
+   **ถ้าล็อกอินได้แต่ข้อมูล user / แดชบอร์ดไม่ขึ้น** ให้เปิด **Table Editor → profiles** ว่ามีแถว `id` ตรงกับ **Authentication → Users → User UID** หรือไม่  
+   ถ้าไม่มี ให้รัน `supabase/migrations/003_backfill_missing_profiles.sql` ใน SQL Editor (สร้างแถว `profiles` ให้ user ที่ยังไม่มี)
 4. ตั้งค่าแอดมินคนแรก: ใน **Table Editor → profiles** ตั้ง `is_admin = true` สำหรับผู้ใช้นั้น
 5. กำหนด `department_id`, `position_id`, `employee_code` ให้พนักงานแต่ละคน (แอดมินทำได้จากหน้า **จัดการข้อมูลหลัก → ผู้ใช้**)
 
@@ -91,6 +97,14 @@ npm run dev
   - **Redirect URLs** เพิ่ม `https://your-app.vercel.app/**` และ URL preview ของ Vercel (ถ้ามี) เพื่อไม่ให้ redirect หลัง auth โดนบล็อก
 
 จากนั้น redeploy หรือรอ build รอบถัดไปหลังแก้ env บน Vercel
+
+### REST ตอบ 400 ที่ `/rest/v1/profiles`
+
+- โค้ดนับจำนวนพนักงานใช้ **`GET` + `count=exact` + `limit(1)`** แล้ว (ไม่ใช้ **`HEAD`**) เพราะบางโปรเจกต์ได้ **400** กับ `HEAD .../profiles` ร่วมกับ RLS  
+- มักเกิดจาก **ค่า filter ไม่ใช่ UUID** หรือ **`.in('id', [])` ว่าง** — มีการกรอง UUID / ไม่เรียก `in` เมื่อไม่มี id แล้ว  
+- **ล็อกอินได้แต่ข้อมูล user ไม่ขึ้น** → มักไม่มีแถวใน **`public.profiles`** ให้ตรงกับ user ใน Auth — รัน **`003_backfill_missing_profiles.sql`** (ดูข้อ 2 ด้านบน)
+
+ถ้ายัง error ให้เปิดแท็บ Network ดู **Response body** และยืนยันว่ารัน **`002_fix_profiles_rls_recursion.sql`** แล้วถ้าเคยเจอ infinite recursion บน `profiles`
 
 ## 7) หมายเหตุ production
 

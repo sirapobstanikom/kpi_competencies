@@ -19,8 +19,9 @@ export function AppShell() {
     void (async () => {
       const { count, error } = await supabase
         .from('evaluations')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'exact' })
         .eq('evaluator_id', profile.id)
+        .limit(1)
       if (!error && count !== null) setEvaluatorTaskCount(count)
     })()
   }, [profile?.id])

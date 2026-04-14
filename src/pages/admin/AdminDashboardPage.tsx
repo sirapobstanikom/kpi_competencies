@@ -24,9 +24,12 @@ export function AdminDashboardPage() {
   useEffect(() => {
     void (async () => {
       setLoading(true)
-      const { count: empCount } = await supabase
-        .from('profiles')
-        .select('*', { count: 'exact', head: true })
+      const { data: empCountRpc, error: empCountErr } = await supabase.rpc('admin_profile_count')
+      if (empCountErr) {
+        console.error('[AdminDashboard] admin_profile_count:', empCountErr.message, empCountErr)
+      }
+      const n = Number(empCountRpc ?? 0)
+      const empCount = Number.isFinite(n) ? n : 0
 
       const { data: activeCycle } = await supabase
         .from('evaluation_cycles')
@@ -65,7 +68,11 @@ export function AdminDashboardPage() {
         finals.length ? finals.reduce((a, b) => a + b, 0) / finals.length : null,
       )
 
-      const { data: profs } = await supabase.from('profiles').select('id, department_id')
+      const empIds = [...new Set((results ?? []).map((r) => r.employee_id))]
+      const { data: profs } =
+        empIds.length > 0
+          ? await supabase.from('profiles').select('id, department_id').in('id', empIds)
+          : { data: [] as { id: string; department_id: string | null }[] }
       const { data: depts } = await supabase.from('departments').select('id, name')
 
       const deptName = new Map((depts ?? []).map((d) => [d.id, d.name]))

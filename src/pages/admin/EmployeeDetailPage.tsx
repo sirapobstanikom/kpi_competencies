@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { displayName, formatScore } from '../../lib/format'
+import { isUuid } from '../../lib/validation'
 import type { EvaluationCycle, EvaluationResult, Profile } from '../../types/database'
 
 type Assignment = {
@@ -21,7 +22,15 @@ export function EmployeeDetailPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!employeeId) return
+    if (!employeeId) {
+      setLoading(false)
+      return
+    }
+    if (!isUuid(employeeId)) {
+      setLoading(false)
+      setProfile(null)
+      return
+    }
     void (async () => {
       const { data: p } = await supabase.from('profiles').select('*').eq('id', employeeId).maybeSingle()
       setProfile(p)
@@ -32,8 +41,8 @@ export function EmployeeDetailPage() {
         .eq('employee_id', employeeId)
         .order('created_at', { ascending: false })
 
-      const cids = [...new Set((a ?? []).map((x) => x.cycle_id))]
-      const eids = [...new Set((a ?? []).map((x) => x.evaluator_id))]
+      const cids = [...new Set((a ?? []).map((x) => x.cycle_id).filter(isUuid))]
+      const eids = [...new Set((a ?? []).map((x) => x.evaluator_id).filter(isUuid))]
       const [{ data: cycles }, { data: evals }] = await Promise.all([
         cids.length
           ? supabase.from('evaluation_cycles').select('id, name, year').in('id', cids)

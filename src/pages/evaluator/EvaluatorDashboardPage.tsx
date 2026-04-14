@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { displayName } from '../../lib/format'
+import { isUuid } from '../../lib/validation'
 import { useAuth } from '../../context/AuthContext'
 import type { Evaluation } from '../../types/database'
 
@@ -28,8 +29,8 @@ export function EvaluatorDashboardPage() {
         setLoading(false)
         return
       }
-      const empIds = [...new Set(evs.map((e) => e.employee_id))]
-      const cycIds = [...new Set(evs.map((e) => e.cycle_id))]
+      const empIds = [...new Set(evs.map((e) => e.employee_id).filter(isUuid))]
+      const cycIds = [...new Set(evs.map((e) => e.cycle_id).filter(isUuid))]
       const [{ data: emps }, { data: cycles }] = await Promise.all([
         empIds.length
           ? supabase
@@ -112,7 +113,7 @@ export function EvaluatorDashboardPage() {
               to={`/evaluator/${r.id}`}
               className="mt-4 inline-block text-sm font-semibold text-brand-600 hover:underline"
             >
-              {r.status === 'submitted' ? 'ดูแบบประเมิน' : 'ทำแบบประเมิน'} →
+              เปิดแบบประเมิน →
             </Link>
           </div>
         ))}

@@ -9,6 +9,7 @@ import {
 } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { isUuid } from '../lib/validation'
 import type { Profile } from '../types/database'
 
 type AuthState = {
@@ -28,11 +29,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   const loadProfile = useCallback(async (userId: string) => {
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
-    if (error) {
-      console.error(error)
+    if (!isUuid(userId)) {
       setProfile(null)
       return
+    }
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+    if (error) {
+      console.error('[Auth] loadProfile:', error.message, error)
+      setProfile(null)
+      return
+    }
+    if (!data) {
+      console.warn(
+        '[Auth] ไม่มีแถวใน public.profiles สำหรับ user นี้ — รัน SQL backfill ใน SETUP.md หรือสร้างแถวใน Table Editor',
+      )
     }
     setProfile(data)
   }, [])
