@@ -2,12 +2,17 @@
 
 @theme {
   --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
-  --color-brand-700: #1d4ed8;
-  --color-surface: #f8fafc;
+  /* TCG-inspired: navy #1A3668 + accent #00AEEF on white */
+  --color-brand-50: #eef7fc;
+  --color-brand-100: #d9eef9;
+  --color-brand-200: #b3d9f2;
+  --color-brand-400: #33c4f3;
+  --color-brand-500: #00aeef;
+  --color-brand-600: #1a3668;
+  --color-brand-700: #142c54;
+  --color-brand-800: #0f2244;
+  --color-brand-900: #0a1833;
+  --color-surface: #f5f9fc;
   --color-card: #ffffff;
 }
 
@@ -16,7 +21,7 @@
     @apply antialiased;
   }
   body {
-    @apply m-0 min-h-svh bg-slate-50 text-slate-900;
+    @apply m-0 min-h-svh bg-white text-slate-900;
   }
   #root {
     @apply min-h-svh;
