@@ -42,12 +42,15 @@ export type EvaluationCycle = {
   created_at: string
 }
 
+export type EvaluatorGrade = 'A' | 'B+' | 'B' | 'C+' | 'C'
+
 export type Evaluation = {
   id: string
   cycle_id: string
   employee_id: string
   evaluator_id: string
   status: EvaluationStatus
+  grade?: EvaluatorGrade | null
   submitted_at: string | null
   created_at: string
   updated_at: string

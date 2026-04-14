@@ -1,9 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Bar,
   BarChart,
   CartesianGrid,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -20,6 +19,21 @@ export function AdminDashboardPage() {
   const [deptData, setDeptData] = useState<DeptAgg[]>([])
   const [cycleLabel, setCycleLabel] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const chartHostRef = useRef<HTMLDivElement | null>(null)
+  const [chartWidth, setChartWidth] = useState(0)
+
+  useEffect(() => {
+    const node = chartHostRef.current
+    if (!node) return
+    const measure = () => {
+      const next = Math.floor(node.getBoundingClientRect().width)
+      setChartWidth(next > 0 ? next : 0)
+    }
+    measure()
+    const ro = new ResizeObserver(() => measure())
+    ro.observe(node)
+    return () => ro.disconnect()
+  }, [])
 
   useEffect(() => {
     void (async () => {
@@ -154,9 +168,9 @@ export function AdminDashboardPage() {
         {deptData.length === 0 ? (
           <p className="mt-4 text-sm text-slate-500">ยังไม่มีผลคำนวณในรอบนี้</p>
         ) : (
-          <div className="mt-4 h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={deptData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+          <div ref={chartHostRef} className="mt-4 h-72 w-full min-w-0">
+            {chartWidth > 0 ? (
+              <BarChart width={chartWidth} height={288} data={deptData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={64} />
                 <YAxis domain={[0, 5]} tick={{ fontSize: 11 }} />
@@ -166,7 +180,9 @@ export function AdminDashboardPage() {
                 />
                 <Bar dataKey="avg" fill="#2563eb" radius={[4, 4, 0, 0]} name="คะแนนเฉลี่ย" />
               </BarChart>
-            </ResponsiveContainer>
+            ) : (
+              <div className="h-full w-full rounded-lg bg-slate-50" />
+            )}
           </div>
         )}
       </div>

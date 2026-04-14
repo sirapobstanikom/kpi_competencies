@@ -71,13 +71,13 @@ export function AppShell() {
           </button>
 
           <nav className="hidden flex-wrap items-center justify-end gap-2 lg:flex" aria-label="หลัก">
+            <NavLink to="/admin/departments" className={navCls}>
+              แยกตามแผนก
+            </NavLink>
             {profile?.is_admin && (
               <>
                 <NavLink to="/admin" className={navCls}>
                   แดชบอร์ดองค์กร
-                </NavLink>
-                <NavLink to="/admin/departments" className={navCls}>
-                  แยกตามแผนก
                 </NavLink>
                 <NavLink to="/admin/assignments" className={navCls}>
                   มอบหมายผู้ประเมิน
@@ -116,13 +116,13 @@ export function AppShell() {
             className="mx-auto flex max-w-6xl flex-col gap-1 px-[max(1rem,env(safe-area-inset-left))] py-3 pr-[max(1rem,env(safe-area-inset-right))] pb-[max(1rem,env(safe-area-inset-bottom))]"
             aria-label="หลัก (มือถือ)"
           >
+            <NavLink to="/admin/departments" className={navClsMobile}>
+              แยกตามแผนก
+            </NavLink>
             {profile?.is_admin && (
               <>
                 <NavLink to="/admin" className={navClsMobile}>
                   แดชบอร์ดองค์กร
-                </NavLink>
-                <NavLink to="/admin/departments" className={navClsMobile}>
-                  แยกตามแผนก
                 </NavLink>
                 <NavLink to="/admin/assignments" className={navClsMobile}>
                   มอบหมายผู้ประเมิน

@@ -12,9 +12,22 @@ import {
   normalizeScoreInput,
 } from '../../lib/evalScore'
 import { formatCycleEndLabel, isPastCycleEndDate } from '../../lib/cyclePeriod'
+import type { EvaluatorGrade } from '../../types/database'
+
+const GRADES: EvaluatorGrade[] = ['A', 'B+', 'B', 'C+', 'C']
 
 type Q = { id: string; type: string; question_text: string }
 type K = { id: string; title: string }
+
+type LineItem = { key: string; text: string; qid: string }
+const GROUP_CORE = 'group-core'
+const GROUP_MANAGERIAL = 'group-managerial'
+const GROUP_KPI = 'group-kpi'
+
+function avgScore(values: number[]): number | '' {
+  if (!values.length) return ''
+  return normalizeScoreInput(values.reduce((a, b) => a + b, 0) / values.length)
+}
 
 export function EvaluationFormPage() {
   const { evaluationId } = useParams<{ evaluationId: string }>()
@@ -29,11 +42,19 @@ export function EvaluationFormPage() {
   const [mgrQ, setMgrQ] = useState<Q[]>([])
   const [kpis, setKpis] = useState<K[]>([])
   const [scores, setScores] = useState<Record<string, number | ''>>({})
+  const [grade, setGrade] = useState<EvaluatorGrade | ''>('')
   const [cycle, setCycle] = useState<{
     end_date: string
     status: string
     name: string
   } | null>(null)
+
+  const lineItems = useMemo((): LineItem[] => {
+    const out: LineItem[] = [{ key: GROUP_CORE, text: 'Core Competency', qid: GROUP_CORE }]
+    if (useMgr) out.push({ key: GROUP_MANAGERIAL, text: 'Managerial Competency', qid: GROUP_MANAGERIAL })
+    out.push({ key: GROUP_KPI, text: 'KPI', qid: GROUP_KPI })
+    return out
+  }, [useMgr])
 
   useEffect(() => {
     if (!evaluationId || !isUuid(evaluationId)) {
@@ -56,6 +77,8 @@ export function EvaluationFormPage() {
         return
       }
       setStatus(ev.status)
+      const g = (ev as { grade?: EvaluatorGrade | null }).grade
+      setGrade(g && GRADES.includes(g) ? g : '')
 
       const { data: cyc } = await supabase
         .from('evaluation_cycles')
@@ -107,9 +130,22 @@ export function EvaluationFormPage() {
         .select('kpi_id, score')
         .eq('evaluation_id', evaluationId)
 
-      const m: Record<string, number | ''> = {}
-      for (const r of ca ?? []) m[r.question_id] = normalizeScoreInput(Number(r.score))
-      for (const r of ka ?? []) m[r.kpi_id] = normalizeScoreInput(Number(r.score))
+      const coreIds = new Set((cq ?? []).map((q) => q.id))
+      const mgrIds = new Set((mq ?? []).map((q) => q.id))
+      const coreScores: number[] = []
+      const mgrScores: number[] = []
+      for (const r of ca ?? []) {
+        const n = normalizeScoreInput(Number(r.score))
+        if (coreIds.has(r.question_id)) coreScores.push(n)
+        if (mgrIds.has(r.question_id)) mgrScores.push(n)
+      }
+      const kpiScores: number[] = (ka ?? []).map((r) => normalizeScoreInput(Number(r.score)))
+
+      const m: Record<string, number | ''> = {
+        [GROUP_CORE]: avgScore(coreScores),
+        [GROUP_KPI]: avgScore(kpiScores),
+      }
+      if (managerial) m[GROUP_MANAGERIAL] = avgScore(mgrScores)
       setScores(m)
       setLoading(false)
     })()
@@ -124,10 +160,11 @@ export function EvaluationFormPage() {
 
   const readonly = !canEditAnswers
 
-  const allIds = useMemo(
-    () => [...coreQ.map((q) => q.id), ...mgrQ.map((q) => q.id), ...kpis.map((k) => k.id)],
-    [coreQ, mgrQ, kpis],
-  )
+  const allIds = useMemo(() => {
+    const ids = [GROUP_CORE, GROUP_KPI]
+    if (useMgr) ids.push(GROUP_MANAGERIAL)
+    return ids
+  }, [useMgr])
 
   function setScore(id: string, v: string) {
     if (v === '') {
@@ -141,26 +178,29 @@ export function EvaluationFormPage() {
 
   async function persistAnswers() {
     if (!evaluationId) return
+    const coreScore = scores[GROUP_CORE]
+    const managerialScore = scores[GROUP_MANAGERIAL]
+    const kpiScore = scores[GROUP_KPI]
+
     const compRows = [...coreQ, ...mgrQ]
       .map((q) => {
-        const sc = scores[q.id]
-        if (sc === '' || sc === undefined) return null
+        const sc = q.type === 'core' ? coreScore : managerialScore
+        if (sc === '' || sc === undefined || typeof sc !== 'number') return null
         return {
           evaluation_id: evaluationId,
           question_id: q.id,
-          score: normalizeScoreInput(typeof sc === 'number' ? sc : Number(sc)),
+          score: normalizeScoreInput(sc),
         }
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
 
     const kpiRows = kpis
       .map((k) => {
-        const sc = scores[k.id]
-        if (sc === '' || sc === undefined) return null
+        if (kpiScore === '' || kpiScore === undefined || typeof kpiScore !== 'number') return null
         return {
           evaluation_id: evaluationId,
           kpi_id: k.id,
-          score: normalizeScoreInput(typeof sc === 'number' ? sc : Number(sc)),
+          score: normalizeScoreInput(kpiScore),
         }
       })
       .filter((x): x is NonNullable<typeof x> => x !== null)
@@ -179,11 +219,21 @@ export function EvaluationFormPage() {
     }
   }
 
+  async function persistGrade() {
+    if (!evaluationId) return
+    const { error } = await supabase
+      .from('evaluations')
+      .update({ grade: grade === '' ? null : grade })
+      .eq('id', evaluationId)
+    if (error) throw error
+  }
+
   async function saveDraft() {
     if (!canEditAnswers) return
     setSaving(true)
     try {
       await persistAnswers()
+      await persistGrade()
       toast.success(status === 'submitted' ? 'บันทึกการแก้ไขแล้ว' : 'บันทึกร่างแล้ว')
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'บันทึกไม่สำเร็จ')
@@ -210,9 +260,14 @@ export function EvaluationFormPage() {
         return
       }
     }
+    if (!grade) {
+      toast.error('กรุณาเลือกเกรด (A, B+, B, C+, C) ก่อนส่งแบบ')
+      return
+    }
     setSaving(true)
     try {
       await persistAnswers()
+      await persistGrade()
       const { error } = await supabase
         .from('evaluations')
         .update({ status: 'submitted', submitted_at: new Date().toISOString() })
@@ -239,7 +294,7 @@ export function EvaluationFormPage() {
         max={EVAL_SCORE_MAX}
         step={0.1}
         disabled={readonly}
-        className="w-24 rounded-lg border border-slate-200 px-2 py-1 text-sm disabled:bg-slate-50"
+        className="min-h-12 w-28 rounded-lg border border-slate-200 px-3 py-2 text-base disabled:bg-slate-50 sm:min-h-0 sm:w-24 sm:py-1 sm:text-sm"
         value={v === '' || v === undefined ? '' : v}
         onChange={(e) => setScore(qid, e.target.value)}
       />
@@ -280,57 +335,44 @@ export function EvaluationFormPage() {
         )}
       </div>
 
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">Core Competency</h2>
-        <p className="text-xs text-slate-500">
-          คะแนน {EVAL_SCORE_MIN}–{EVAL_SCORE_MAX} ต่อข้อ (ทศนิยมได้ไม่เกิน 1 ตำแหน่ง เช่น 4.5)
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <p className="text-sm font-medium text-slate-800">รายการประเมิน</p>
+        <p className="mt-1 text-xs text-slate-500">
+          แสดงเฉพาะชื่อรายการประเมินหลัก ไม่มีข้อย่อย · ให้คะแนน {EVAL_SCORE_MIN}–{EVAL_SCORE_MAX}
+          {useMgr ? '' : ' · ตำแหน่งนี้ไม่ใช้รายการ Managerial'}
         </p>
-        <ul className="mt-4 space-y-3">
-          {coreQ.map((q) => (
-            <li key={q.id} className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-50 pb-3 last:border-0">
-              <span className="text-sm text-slate-800">{q.question_text}</span>
-              <ScoreInput qid={q.id} />
+        <ul className="mt-5 space-y-4">
+          {lineItems.map((item) => (
+            <li
+              key={item.key}
+              className="flex flex-col gap-2 border-b border-slate-100 pb-4 last:border-0 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+            >
+              <span className="min-w-0 flex-1 text-base text-slate-800 sm:text-sm">{item.text}</span>
+              <ScoreInput qid={item.qid} />
             </li>
           ))}
         </ul>
       </section>
 
-      {useMgr && (
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900">Managerial Competency</h2>
-          <p className="text-xs text-slate-500">
-            คะแนน {EVAL_SCORE_MIN}–{EVAL_SCORE_MAX} (ทศนิยม 1 ตำแหน่ง)
-          </p>
-          <ul className="mt-4 space-y-3">
-            {mgrQ.map((q) => (
-              <li
-                key={q.id}
-                className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-50 pb-3 last:border-0"
-              >
-                <span className="text-sm text-slate-800">{q.question_text}</span>
-                <ScoreInput qid={q.id} />
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-900">KPI</h2>
-        <p className="text-xs text-slate-500">
-          คะแนน {EVAL_SCORE_MIN}–{EVAL_SCORE_MAX} (ทศนิยม 1 ตำแหน่ง)
-        </p>
-        <ul className="mt-4 space-y-3">
-          {kpis.map((k) => (
-            <li
-              key={k.id}
-              className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-50 pb-3 last:border-0"
-            >
-              <span className="text-sm text-slate-800">{k.title}</span>
-              <ScoreInput qid={k.id} />
-            </li>
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <label htmlFor="eval-grade" className="text-sm font-medium text-slate-800">
+          เกรดที่ประเมิน
+        </label>
+        <p className="mt-1 text-xs text-slate-500">เลือกเกรดหนึ่งรายการ — จำเป็นตอนส่งแบบ (บันทึกร่างเก็บได้แม้ยังไม่เลือก)</p>
+        <select
+          id="eval-grade"
+          disabled={readonly}
+          value={grade}
+          onChange={(e) => setGrade((e.target.value as EvaluatorGrade | '') || '')}
+          className="mt-3 min-h-12 w-full max-w-xs rounded-xl border border-slate-200 bg-white px-4 py-3 text-base font-medium text-slate-900 disabled:bg-slate-50 sm:min-h-11 sm:text-sm"
+        >
+          <option value="">— เลือกเกรด —</option>
+          {GRADES.map((g) => (
+            <option key={g} value={g}>
+              {g}
+            </option>
           ))}
-        </ul>
+        </select>
       </section>
 
       {canEditAnswers && (
@@ -339,7 +381,7 @@ export function EvaluationFormPage() {
             type="button"
             disabled={saving}
             onClick={() => void saveDraft()}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50"
+            className="min-h-12 rounded-lg border border-slate-200 px-4 text-base font-semibold text-slate-800 hover:bg-slate-50 sm:min-h-0 sm:text-sm"
           >
             {status === 'submitted' ? 'บันทึกการแก้ไข' : 'บันทึกร่าง'}
           </button>
@@ -348,7 +390,7 @@ export function EvaluationFormPage() {
               type="button"
               disabled={saving}
               onClick={() => void submit()}
-              className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700"
+              className="min-h-12 rounded-lg bg-brand-600 px-4 text-base font-semibold text-white hover:bg-brand-700 sm:min-h-0 sm:text-sm"
             >
               ส่งแบบประเมิน
             </button>

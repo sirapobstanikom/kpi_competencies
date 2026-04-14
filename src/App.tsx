@@ -28,9 +28,9 @@ export default function App() {
               <Route path="me" element={<EmployeeDashboardPage />} />
               <Route path="evaluator" element={<EvaluatorDashboardPage />} />
               <Route path="evaluator/:evaluationId" element={<EvaluationFormPage />} />
+              <Route path="admin/departments" element={<DepartmentDashboardPage />} />
               <Route path="admin" element={<AdminRoute />}>
                 <Route index element={<AdminDashboardPage />} />
-                <Route path="departments" element={<DepartmentDashboardPage />} />
                 <Route path="assignments" element={<AssignmentPage />} />
                 <Route path="master" element={<MasterDataPage />} />
                 <Route path="employees/:employeeId" element={<EmployeeDetailPage />} />
