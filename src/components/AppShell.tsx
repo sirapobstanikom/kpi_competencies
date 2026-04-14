@@ -48,7 +48,7 @@ export function AppShell() {
             to="/"
             className="min-h-11 min-w-0 flex-1 py-2 text-left text-base font-semibold leading-snug text-brand-900 sm:text-lg"
           >
-            Employee Performance Evaluation
+            ระบบประเมินผลการปฏิบัติงาน · TCG
           </Link>
 
           <button
